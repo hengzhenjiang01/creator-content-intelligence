@@ -1,0 +1,29 @@
+.env
+.env.local
+.env.*.local
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+outputs/*
+!outputs/.gitkeep
+
+# 本地媒体、关键帧与视觉处理临时文件
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+frame_*.jpg
+frame_*.jpeg
+frame_*.png
+source_video.*
+ai_growth_vision_*/
+
+# 依赖真实本地报告的非公开回归脚本
+tests/local_render_lucia.py
