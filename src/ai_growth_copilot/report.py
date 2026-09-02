@@ -130,21 +130,44 @@ def _render_visual_evidence(sample: ReelSample, card: dict[str, Any]) -> list[st
     evidence = sample.visual_evidence or {}
     lines = ["#### 视觉证据", ""]
     if not evidence:
-        reason = sample.visual_error or "未启用 --vision"
+        diagnostic = sample.visual_error if isinstance(sample.visual_error, dict) else {}
+        if diagnostic:
+            stage = _plain(diagnostic.get("failure_stage")) or "未知"
+            category = _plain(diagnostic.get("exception_category")) or "未知"
+            status = diagnostic.get("status_code")
+            download_object = _plain(diagnostic.get("download_object")) or "none"
+            reason = f"阶段={stage}；异常类别={category}"
+            if status is not None:
+                reason += f"；HTTP 状态码={status}"
+        else:
+            stage = "未启用"
+            category = "NotRequested"
+            download_object = "none"
+            reason = "未启用 --vision"
         lines.extend(
             [
                 "- 视觉素材类型：未取得视觉素材",
+                f"- 是否存在 videoUrl：{_yes_no(diagnostic.get('has_video_url')) if diagnostic else _yes_no(bool(sample.reel.video_url))}",
+                f"- 是否存在 displayUrl / cover URL：{_yes_no(diagnostic.get('has_cover_url')) if diagnostic else _yes_no(bool(sample.reel.display_url))}",
+                f"- 下载对象类型：{download_object}",
+                f"- 失败阶段：{stage}",
+                f"- 已脱敏异常类别：{category}",
                 f"- 视觉缺失原因：{_plain(reason)}",
-                "- 跨模态矛盾：无法比较 caption、口播转录与视觉证据",
-                "",
             ]
         )
+        failures = diagnostic.get("failures") if diagnostic else []
+        if isinstance(failures, list) and failures:
+            lines.append(f"- 分阶段失败记录：{_render_failure_chain(failures)}")
+        lines.extend(["- 跨模态矛盾：无法比较 caption、口播转录与视觉证据", ""])
         return lines
     source_type = str(evidence.get("source_type") or "")
     type_label = "视频关键帧" if source_type == "video_keyframes" else "仅封面" if source_type == "cover_only" else "未取得视觉素材"
     lines.extend(
         [
             f"- 视觉素材类型：{type_label}",
+            f"- 是否存在 videoUrl：{_yes_no(evidence.get('has_video_url'))}",
+            f"- 是否存在 displayUrl / cover URL：{_yes_no(evidence.get('has_cover_url'))}",
+            f"- 下载对象类型：{_plain(evidence.get('download_object')) or 'none'}",
             f"- 取帧规则：{_plain(evidence.get('source_note')) or '未知'}",
             f"- 可见场景：{_visual_value(evidence.get('visible_scene'))}",
             f"- 视觉 Hook：{_visual_value(evidence.get('visual_hook'))}",
@@ -155,6 +178,16 @@ def _render_visual_evidence(sample: ReelSample, card: dict[str, Any]) -> list[st
             f"- 置信度与限制：{_visual_value(evidence.get('confidence_and_limits'))}",
         ]
     )
+    fallback = evidence.get("video_fallback_failure")
+    if isinstance(fallback, dict):
+        fallback_status = fallback.get("status_code")
+        fallback_text = (
+            f"阶段={_plain(fallback.get('failure_stage')) or '未知'}；"
+            f"异常类别={_plain(fallback.get('exception_category')) or '未知'}"
+        )
+        if fallback_status is not None:
+            fallback_text += f"；HTTP 状态码={fallback_status}"
+        lines.append(f"- 视频降级诊断：{fallback_text}")
     conflicts = [_plain(item) for item in _list(card.get("cross_modal_conflicts")) if _plain(item)]
     lines.append(
         f"- 跨模态矛盾：{'；'.join(conflicts) if conflicts else '未识别到明确矛盾；不代表三种证据完全一致'}"
@@ -299,6 +332,26 @@ def _visual_value(value: Any) -> str:
         items = [_plain(item) for item in value if _plain(item)]
         return "；".join(items) if items else "未观察到"
     return _plain(value) or "未观察到"
+
+
+def _yes_no(value: Any) -> str:
+    return "是" if bool(value) else "否"
+
+
+def _render_failure_chain(failures: list[Any]) -> str:
+    rendered: list[str] = []
+    for failure in failures:
+        if not isinstance(failure, dict):
+            continue
+        text = (
+            f"对象={_plain(failure.get('download_object')) or 'none'}，"
+            f"阶段={_plain(failure.get('failure_stage')) or '未知'}，"
+            f"异常类别={_plain(failure.get('exception_category')) or '未知'}"
+        )
+        if failure.get("status_code") is not None:
+            text += f"，HTTP 状态码={failure.get('status_code')}"
+        rendered.append(text)
+    return "；".join(rendered) if rendered else "无"
 
 
 def _username_from_url(url: str) -> str:

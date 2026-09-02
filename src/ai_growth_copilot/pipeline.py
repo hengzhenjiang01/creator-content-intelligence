@@ -73,13 +73,26 @@ class Pipeline:
             visually_enriched: list[ReelSample] = []
             for sample in samples:
                 if analysis_mode == "指定 Reel" and not sample.reel.raw:
-                    visually_enriched.append(replace(sample, visual_error="没有公开元数据，无法取得视觉素材"))
+                    visually_enriched.append(
+                        replace(
+                            sample,
+                            visual_error={
+                                "has_video_url": False,
+                                "has_cover_url": False,
+                                "download_object": "none",
+                                "failure_stage": "media_metadata",
+                                "exception_category": "MissingPublicMetadata",
+                                "status_code": None,
+                                "failures": [],
+                            },
+                        )
+                    )
                     continue
                 try:
                     evidence = vision_analyzer.analyze_reel(sample.reel)
                     visually_enriched.append(replace(sample, visual_evidence=evidence))
                 except VisualError as exc:
-                    visually_enriched.append(replace(sample, visual_error=str(exc)))
+                    visually_enriched.append(replace(sample, visual_error=exc.to_dict(sample.reel)))
             samples = visually_enriched
         analyzer = DeepSeekAnalyzer(
             self.settings.deepseek_api_key,

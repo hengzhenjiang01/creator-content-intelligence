@@ -32,7 +32,7 @@ class ReelSample:
     error: Optional[str] = None
     product_relationship: str = "unknown"
     visual_evidence: Optional[dict[str, Any]] = None
-    visual_error: Optional[str] = None
+    visual_error: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
