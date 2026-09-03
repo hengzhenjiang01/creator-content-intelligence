@@ -45,6 +45,8 @@ class ReportContext:
     analysis_mode: str = "主页"
     input_urls: list[str] = field(default_factory=list)
     vision_enabled: bool = False
+    report_version: str = "V2"
+    historical_test_data_incomplete: bool = False
 
     @property
     def sample_count(self) -> int:

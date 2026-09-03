@@ -167,7 +167,7 @@ class VisualLayerTests(unittest.TestCase):
         self.assertIn("- 视觉素材类型：视频关键帧", report)
         self.assertIn("固定取视频时长约 10%、50%、90%", report)
         self.assertIn("- Caption：caption evidence", report)
-        self.assertIn("- 转录摘要：transcript evidence", report)
+        self.assertIn("- 口播转录摘要：transcript evidence", report)
         self.assertIn("画面文字与口播产品名不同", report)
 
     def test_cover_only_render(self) -> None:
@@ -180,7 +180,20 @@ class VisualLayerTests(unittest.TestCase):
         report = render_report(_context(sample, vision_enabled=True))
         self.assertIn("- 视觉素材类型：仅封面", report)
         self.assertIn("仅分析封面", report)
-        self.assertIn("视频降级诊断：阶段=timeout；异常类别=ReadTimeout", report)
+        self.assertIn("封面降级原因：视频：请求超时", report)
+
+    def test_vision_disabled_is_rendered_as_one_operational_note(self) -> None:
+        url = "https://www.instagram.com/reel/OFF/"
+        sample = ReelSample(
+            reel=Reel(url=url, shortcode="OFF"),
+            transcript=Transcript(reel_url=url, text="text"),
+        )
+        report = render_report(_context(sample, vision_enabled=False))
+        self.assertEqual(report.count("视觉分析：未启用"), 1)
+        self.assertNotIn("#### 视觉证据", report)
+        self.assertNotIn("视觉分析未启用，本次相关结论未使用视频画面证据。", report)
+        self.assertNotIn("videoUrl", report)
+        self.assertNotIn("NotRequested", report)
 
     def test_visual_failure_does_not_hide_text(self) -> None:
         reel = Reel(url="https://www.instagram.com/reel/FAIL/", shortcode="FAIL", caption="caption remains", video_url="secret")
@@ -199,12 +212,12 @@ class VisualLayerTests(unittest.TestCase):
         )
         report = render_report(_context(sample, vision_enabled=True))
         self.assertIn("- Caption：caption remains", report)
-        self.assertIn("- 转录摘要：transcript evidence", report)
-        self.assertIn("- 视觉素材类型：未取得视觉素材", report)
-        self.assertIn("- 是否存在 videoUrl：是", report)
-        self.assertIn("- 失败阶段：DNS", report)
+        self.assertIn("- 口播转录摘要：transcript evidence", report)
+        self.assertIn("未取得视觉素材（视频：DNS 解析失败）", report)
+        self.assertNotIn("videoUrl", report)
+        self.assertNotIn("异常类别", report)
         self.assertNotIn("secret", report)
-        self.assertIn("- 视觉缺失条数：1", report)
+        self.assertIn("视觉缺失 1 条", report)
 
     def test_both_download_failures_render_without_media_urls(self) -> None:
         reel = Reel(url="https://www.instagram.com/reel/BOTH/", shortcode="BOTH")
@@ -224,8 +237,9 @@ class VisualLayerTests(unittest.TestCase):
             },
         )
         report = render_report(_context(sample, vision_enabled=True))
-        self.assertIn("对象=video，阶段=DNS，异常类别=ConnectionError", report)
-        self.assertIn("对象=cover，阶段=HTTP，异常类别=HTTPError，HTTP 状态码=403", report)
+        self.assertIn("视频：DNS 解析失败", report)
+        self.assertIn("封面：媒体服务器拒绝请求（HTTP 403）", report)
+        self.assertNotIn("异常类别", report)
         self.assertNotIn("token=", report)
 
 
@@ -263,11 +277,11 @@ def _context(sample: ReelSample, vision_enabled: bool) -> ReportContext:
         fetched_at=datetime.now(timezone.utc),
         samples=[sample],
         analysis={
-            "evidence_cards": [
+            "evidence_appendix": [
                 {
                     "content_id": content_id,
                     "transcript_summary": "transcript evidence",
-                    "cross_modal_conflicts": ["画面文字与口播产品名不同"],
+                    "cross_modal_conflicts": ["画面文字与口播产品名不同"] if sample.visual_evidence else [],
                 }
             ]
         },

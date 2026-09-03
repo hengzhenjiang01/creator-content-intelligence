@@ -60,9 +60,11 @@ class CliInputModeTests(unittest.TestCase):
             )
         )
         self.assertIn("- 分析模式：指定 Reel", report)
-        self.assertIn("- 用户提供的输入链接：", report)
-        self.assertIn("- 成功抓取链接：", report)
-        self.assertIn("- 作者账号：作者未知", report)
+        self.assertIn("- 输入链接：", report)
+        self.assertIn("- 成功获取：", report)
+        self.assertIn("- 作者：作者未知", report)
+        self.assertIn("## A. 核心结论", report)
+        self.assertIn("## D. 原始证据附录", report)
 
     def test_vision_dry_run_does_not_execute(self) -> None:
         code, stdout, stderr = _run_main(

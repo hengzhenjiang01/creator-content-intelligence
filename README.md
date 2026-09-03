@@ -80,7 +80,7 @@ python main.py \
   --focus-products Lovart Higgsfield CapCut
 ```
 
-focus products 只是识别提醒，不会被当作内容已经提及的产品；模型仍须列出 caption 或转录中实际出现的其他 AI 产品。
+focus products 只是识别提醒，不会被当作内容已经提及的产品；模型仍须列出 caption、转录或视觉证据中实际出现的其他 AI 产品。
 
 ### 可选视觉分析
 
@@ -112,7 +112,7 @@ python main.py \
 
 媒体下载使用常见的 `User-Agent`、`Accept` 和 Instagram `Referer` 请求头，区分连接与读取超时，并对临时连接错误及 429/5xx 状态进行有限重试。不会绕过登录、验证码、权限或平台访问限制。若视频下载或本地视频处理失败且存在封面，程序会降级分析封面；报告只记录是否存在媒体字段、下载对象、失败阶段、脱敏异常类别和 HTTP 状态码，不记录完整媒体 URL。
 
-报告每次都会写入 `outputs/`，文件名包含账号名和抓取时间。报告开头包含账号 URL、抓取时间、样本数和失败条数；每条样本及分析结论保留 Instagram 来源链接。
+报告每次都会写入 `outputs/`，文件名包含账号名和抓取时间。V2 报告按“核心结论—横向内容机制对比—对 Lovart 的策略启示—原始证据附录”组织，报告开头包含账号 URL、抓取时间、分析范围和失败条数；每条样本及分析结论保留 Instagram 来源链接。
 
 ## Evidence-constrained reporting
 
@@ -124,9 +124,9 @@ python main.py \
 
 Caption、口播转录和视觉证据分开保存与渲染。三者出现矛盾时，报告列出冲突，不自行判定哪一方正确。模型只返回结构化 JSON、原始 URL 与内容 ID，Markdown 链接由本地渲染器统一生成。
 
-## V0 分析边界与局限性
+## 分析边界与局限性
 
-V0 的分析单位是**单条公开内容**，不是账号。报告中的跨样本解释不会自动扩展为对整个账号、创作者或品牌关系的结论。
+当前分析单位是**单条公开内容**，不是账号。报告中的跨样本解释不会自动扩展为对整个账号、创作者或品牌关系的结论。
 
 每条内容与所提及产品的关系只能标记为：
 
@@ -153,7 +153,7 @@ V0 的分析单位是**单条公开内容**，不是账号。报告中的跨样�
 2. Supadata 对每个 Reel URL 请求转录；异步任务会自动轮询。
 3. 单条转录失败不会中断其他样本，失败原因会写入报告。
 4. DeepSeek 仅分析成功转录的样本，返回不含 Markdown 的结构化 JSON。
-5. 本地渲染器统一生成证据标签、逐条证据卡、来源链接和行动建议。
+5. 本地渲染器统一生成证据标签、V2 四段式报告和来源链接。
 6. 最终 Markdown 报告写入 `outputs/`。
 
 外部服务的输出字段或模型名可能调整。可通过 `.env` 中的 `APIFY_ACTOR_ID` 和 `DEEPSEEK_MODEL` 覆盖默认值。
@@ -177,5 +177,5 @@ PYTHONPATH=src python3 -m unittest tests/test_cli.py
 运行视觉规则与报告渲染测试：
 
 ```bash
-PYTHONPATH=src python3 -m unittest tests/test_visual.py
+PYTHONPATH=src python3 -m unittest tests/test_visual.py tests/test_report_v2.py
 ```
