@@ -12,19 +12,12 @@ FORBIDDEN_SMALL_SAMPLE_PHRASES = {
     "主力钩子": "待测试钩子",
     "表现最佳内容": "本次样本中互动量最高的内容",
 }
-RELATIONSHIPS = {"official", "creator partnership", "organic mention", "comparison", "unknown"}
 MECHANISM_FIELDS = (
     ("content_type", "内容类型"),
-    ("specific_user_task", "具体用户任务"),
-    ("target_audience", "目标受众"),
-    ("pain_or_desire", "痛点或欲望"),
-    ("hook_type", "Hook 类型"),
+    ("hook_type", "Hook"),
     ("narrative_structure", "叙事结构"),
-    ("product_role", "产品承担的角色"),
-    ("spoken_role", "口播作用"),
-    ("visual_role", "视觉作用"),
+    ("product_role", "产品作用"),
     ("cta", "CTA"),
-    ("content_deliverable", "内容交付物"),
 )
 
 
@@ -32,7 +25,9 @@ def write_report(context: ReportContext, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     username = "specified_reels" if context.analysis_mode == "指定 Reel" else _username_from_url(context.account_url)
     stamp = context.fetched_at.strftime("%Y%m%d_%H%M%S")
-    path = output_dir / f"{username}_{stamp}.md"
+    version = re.sub(r"[^A-Za-z0-9]+", "", context.report_version).lower()
+    suffix = f"_{version}" if version else ""
+    path = output_dir / f"{username}{suffix}_{stamp}.md"
     path.write_text(render_report(context), encoding="utf-8")
     return path
 
@@ -72,123 +67,85 @@ def render_report(context: ReportContext) -> str:
     conclusions = _list(context.analysis.get("core_conclusions"))[:3]
     rendered_conclusions = [_render_claim(item, context) for item in conclusions]
     rendered_conclusions = [item for item in rendered_conclusions if item]
-    lines.extend(rendered_conclusions or ["暂无可渲染的核心结论。"])
+    lines.extend(rendered_conclusions)
 
     lines.extend(["", "## B. 内容机制拆解", ""])
     lines.extend(_render_mechanism_matrix(context))
 
     strategy = context.analysis.get("lovart_strategy")
     strategy = strategy if isinstance(strategy, dict) else {}
-    lines.extend(["## C. 对 Lovart 的策略启示", "", "### 可以借鉴", ""])
+    lines.extend(["## C. 对 Lovart 的策略启示", "", "### 可直接采用", ""])
     borrowed = [
         _render_strategy_item(item, context, force_suggestion=True)
-        for item in _list(strategy.get("can_borrow"))
+        for item in _list(strategy.get("can_borrow"))[:2]
     ]
     borrowed = [item for item in borrowed if item]
-    lines.extend(borrowed or ["暂无证据充分的可借鉴项。"])
+    lines.extend(borrowed)
 
-    lines.extend(["", "### 不应直接推断", ""])
-    boundaries = [_render_claim(item, context) for item in _list(strategy.get("should_not_infer"))]
-    boundaries = [item for item in boundaries if item]
-    lines.extend(boundaries or ["- [观察] 当前样本不能支持效果或因果结论。"])
-
-    lines.extend(["", "### 值得测试", ""])
+    lines.extend(["", "### 优先 A/B 测试", ""])
     tests = [item for item in _list(strategy.get("worth_testing")) if isinstance(item, dict)]
-    if not tests:
-        lines.append("暂无满足证据约束的测试方案。")
-    for index, item in enumerate(tests, start=1):
-        lines.extend(_render_test(index, item, context))
+    if tests:
+        lines.extend(_render_test(tests[0], context))
 
     lines.extend(["", "## D. 原始证据附录", ""])
     for sample in context.samples:
         lines.extend(_render_appendix_item(sample, appendix.get(_content_id(sample), {}), context))
-    lines.extend(_render_global_limits(context))
     return "\n".join(lines).rstrip() + "\n"
 
 
 def _render_appendix_item(sample: ReelSample, item: dict[str, Any], context: ReportContext) -> list[str]:
     reel = sample.reel
     content_id = _content_id(sample)
-    relationship = str(item.get("product_relationship") or sample.product_relationship or "unknown")
-    relationship_evidence = _plain(item.get("relationship_evidence"))
-    if relationship not in RELATIONSHIPS or (relationship != "unknown" and not relationship_evidence):
-        relationship = "unknown"
     notes = [_plain(note) for note in _list(item.get("data_quality_notes")) if _plain(note)]
     if sample.error:
         notes.append(f"处理失败：{_plain(sample.error)}")
-    if not reel.published_at:
-        notes.append("发布时间缺失")
-    if not sample.transcript:
-        notes.append("无可用转录")
     conflicts = [_plain(value) for value in _list(item.get("cross_modal_conflicts")) if _plain(value)]
     lines = [
-        f"### 内容 { _plain(content_id) }",
+        "<details>",
+        f"<summary>内容 {_plain(content_id)} · 原始证据</summary>",
         "",
         f"- 原始链接：{_link(content_id, reel.url)}",
-        f"- 作者：{'@' + _plain(reel.author_username) if reel.author_username else '作者未知'}",
-        f"- Caption：{_plain(reel.caption) or '未提供'}",
-        f"- 口播转录摘要：{_plain(item.get('transcript_summary')) or _fallback_summary(sample)}",
-        "",
     ]
-    if context.vision_enabled:
+    if reel.author_username:
+        lines.append(f"- 作者：@{_plain(reel.author_username)}")
+    if reel.published_at:
+        lines.append(f"- 发布时间：{reel.published_at.date().isoformat()}")
+    if reel.caption:
+        lines.append(f"- Caption：{_plain(reel.caption)}")
+    transcript_summary = _plain(item.get("transcript_summary")) or _fallback_summary(sample)
+    if transcript_summary:
+        lines.append(f"- 口播转录摘要：{transcript_summary}")
+    lines.append("")
+    if context.vision_enabled and sample.visual_evidence:
         lines.extend(_render_visual_evidence(sample))
-    lines.extend(
-        [
-            f"- 产品提及：{_render_products(item.get('mentioned_products'))}",
-            f"- 产品关系：{relationship}",
-            f"- 关系证据：{relationship_evidence or '未发现明确的公开合作披露'}",
-            *([f"- 跨模态矛盾：{'；'.join(conflicts)}"] if conflicts else []),
-            f"- 数据质量：{'；'.join(_deduplicate(notes)) if notes else '未发现该内容特有的明确异常'}",
-            "",
-        ]
-    )
+    if conflicts:
+        lines.append(f"- 跨模态矛盾：{'；'.join(conflicts)}")
+    if notes:
+        lines.append(f"- 数据质量：{'；'.join(_deduplicate(notes))}")
+    lines.extend(["", "</details>", ""])
     return lines
 
 
 def _render_visual_evidence(sample: ReelSample) -> list[str]:
     evidence = sample.visual_evidence or {}
-    lines = ["#### 视觉证据", ""]
     if not evidence:
-        diagnostic = sample.visual_error if isinstance(sample.visual_error, dict) else {}
-        reason = _visual_failure_reason(diagnostic)
-        return [*lines, f"未取得视觉素材{f'（{reason}）' if reason else ''}。", ""]
+        return []
+    lines = ["#### 视觉证据", ""]
     source_type = str(evidence.get("source_type") or "")
-    type_label = "视频关键帧" if source_type == "video_keyframes" else "仅封面" if source_type == "cover_only" else "未取得视觉素材"
-    lines.extend(
-        [
-            f"- 视觉素材类型：{type_label}",
-            f"- 取样说明：{_plain(evidence.get('source_note')) or '未知'}",
-            f"- 可见场景：{_visual_value(evidence.get('visible_scene'))}",
-            f"- 视觉 Hook：{_visual_value(evidence.get('visual_hook'))}",
-            f"- 屏幕文字：{_visual_value(evidence.get('on_screen_text'))}",
-            f"- 产品 UI/品牌证据：{_visual_value(evidence.get('product_ui_or_brand_evidence'))}",
-            f"- 前后对比或结果证据：{_visual_value(evidence.get('before_after_or_result_evidence'))}",
-            f"- 视觉内容交付：{_visual_value(evidence.get('visual_content_delivery'))}",
-            f"- 置信度与限制：{_visual_value(evidence.get('confidence_and_limits'))}",
-        ]
+    type_label = "视频关键帧" if source_type == "video_keyframes" else "仅封面" if source_type == "cover_only" else ""
+    visual_fields = (
+        ("视觉素材类型", type_label),
+        ("取样说明", _plain(evidence.get("source_note"))),
+        ("可见场景", _visual_value(evidence.get("visible_scene"))),
+        ("视觉 Hook", _visual_value(evidence.get("visual_hook"))),
+        ("屏幕文字", _visual_value(evidence.get("on_screen_text"))),
+        ("产品 UI/品牌证据", _visual_value(evidence.get("product_ui_or_brand_evidence"))),
+        ("前后对比或结果证据", _visual_value(evidence.get("before_after_or_result_evidence"))),
+        ("视觉内容交付", _visual_value(evidence.get("visual_content_delivery"))),
     )
-    fallback = evidence.get("video_fallback_failure")
-    if isinstance(fallback, dict):
-        lines.append(f"- 封面降级原因：{_friendly_failure({**fallback, 'download_object': 'video'})}")
+    lines.extend(f"- {label}：{value}" for label, value in visual_fields if value)
     lines.append("")
     return lines
-
-
-def _render_global_limits(context: ReportContext) -> list[str]:
-    quality = f"共 {context.sample_count} 条公开内容；文字处理失败 {context.failure_count} 条。"
-    if context.vision_enabled:
-        quality = quality.rstrip("。") + f"；视觉缺失 {context.visual_failure_count} 条。"
-    boundary = (
-        "样本量有限，单条样本不能支持效果或因果结论。"
-        "focus-products 仅是识别提醒，不构成产品提及证据。"
-    )
-    return [
-        "### 数据质量和样本限制",
-        "",
-        f"- {quality}",
-        f"- {boundary}",
-        "",
-    ]
 
 
 def _render_mechanism_matrix(context: ReportContext) -> list[str]:
@@ -208,22 +165,12 @@ def _render_mechanism_matrix(context: ReportContext) -> list[str]:
             mechanism = mechanisms.get(_content_id(sample), {})
             fields = mechanism.get("fields") if isinstance(mechanism.get("fields"), dict) else {}
             values.append(_mechanism_cell(fields.get(key), context))
-        lines.append("| " + " | ".join(_cell(value) for value in [label, *values]) + " |")
+        if any(values):
+            lines.append("| " + " | ".join(_cell(value) for value in [label, *values]) + " |")
     lines.append(
-        "| 发布时间 | "
+        "| 互动数据 | "
         + " | ".join(
-            _cell(sample.reel.published_at.date().isoformat() if sample.reel.published_at else "未知")
-            for sample in context.samples
-        )
-        + " |"
-    )
-    lines.append(
-        "| 观看、点赞、评论 | "
-        + " | ".join(
-            _cell(
-                f"观看 {_number(sample.reel.views)}；点赞 {_number(sample.reel.likes)}；"
-                f"评论 {_number(sample.reel.comments)}"
-            )
+            _cell(_interaction_text(sample))
             for sample in context.samples
         )
         + " |"
@@ -237,14 +184,16 @@ def _render_claim(item: Any, context: ReportContext) -> str:
         return ""
     claim_type = str(item.get("type") or "观察")
     ids = _valid_ids(item.get("evidence_ids"), context)
-    if claim_type == "推断" and len(ids) < 2:
+    if not ids or (claim_type == "推断" and len(ids) < 2):
         return ""
     text = _guard_context_wording(_plain(item.get("text")), context)
     if not text:
         return ""
     uncertainty = _guard_context_wording(_plain(item.get("uncertainty")), context)
     if claim_type == "推断":
-        text = f"{text.rstrip('。；; ')}；不确定性：{uncertainty or '仍需更多样本验证'}"
+        if not uncertainty:
+            return ""
+        text = f"{text.rstrip('。；; ')}；证据边界：{uncertainty}"
     return f"- {_claim_label(claim_type)} {text} {_links(ids, context)}".rstrip()
 
 
@@ -255,39 +204,40 @@ def _render_strategy_item(item: Any, context: ReportContext, force_suggestion: b
     text = _guard_context_wording(_plain(item.get("text")), context)
     if not text or not ids:
         return ""
-    uncertainty = _guard_context_wording(_plain(item.get("uncertainty")), context) or "该方向尚未经过 Lovart 内容对照测试"
     label = "[建议]" if force_suggestion else _claim_label(item.get("type"))
-    return f"- {label} {text.rstrip('。；; ')}；当前不确定性：{uncertainty} {_links(ids, context)}"
+    return f"- {label} {text} {_links(ids, context)}"
 
 
-def _render_test(index: int, item: dict[str, Any], context: ReportContext) -> list[str]:
+def _render_test(item: dict[str, Any], context: ReportContext) -> list[str]:
     ids = _valid_ids(item.get("evidence_ids"), context)
-    variable = _guard_test_wording(_plain(item.get("test_variable")), context) or "待补充"
+    variable = _guard_test_wording(_plain(item.get("test_variable")), context)
+    version_a = _guard_test_wording(_plain(item.get("version_a")), context)
+    version_b = _guard_test_wording(_plain(item.get("version_b")), context)
+    metric = _plain(item.get("metric"))
+    evidence_basis = _guard_test_wording(_plain(item.get("evidence_basis")), context)
+    if not all((ids, variable, version_a, version_b, metric, evidence_basis)):
+        return []
     return [
-        f"#### {index}. [建议] {variable}",
+        f"#### [建议] {variable}",
         "",
         f"- 测试变量：{variable}",
-        f"- A 版本：{_guard_test_wording(_plain(item.get('version_a')), context) or '待补充'}",
-        f"- B 版本：{_guard_test_wording(_plain(item.get('version_b')), context) or '待补充'}",
-        f"- 观察指标：{_plain(item.get('metric')) or '待补充'}",
-        f"- 证据依据：{_guard_test_wording(_plain(item.get('evidence_basis')), context) or '待补充'} {_links(ids, context)}".rstrip(),
-        f"- 当前不确定性：{_guard_context_wording(_plain(item.get('current_uncertainty')), context) or '当前样本不能确认该变量会改善互动或转化'}",
+        f"- A 版本：{version_a}",
+        f"- B 版本：{version_b}",
+        f"- 观察指标：{metric}",
+        f"- 证据依据：{evidence_basis} {_links(ids, context)}".rstrip(),
         "",
     ]
 
 
 def _mechanism_cell(item: Any, context: ReportContext) -> str:
     if not isinstance(item, dict):
-        return "现有证据未明确"
+        return ""
     claim_type = str(item.get("type") or "观察")
-    ids = _valid_ids(item.get("evidence_ids"), context)
-    if claim_type == "推断" and len(ids) < 2:
-        return "证据不足，无法具体判断"
-    text = _guard_context_wording(_plain(item.get("text")), context) or "现有证据未明确"
-    if claim_type == "推断":
-        uncertainty = _guard_context_wording(_plain(item.get("uncertainty")), context) or "仍需更多样本验证"
-        text = f"{text.rstrip('。；; ')}（不确定性：{uncertainty}）"
-    return text
+    if claim_type != "观察" or not _valid_ids(item.get("evidence_ids"), context):
+        return ""
+    text = _guard_context_wording(_plain(item.get("text")), context)
+    placeholders = ("现有证据未明确", "现有证据不足", "证据不足", "无法具体判断", "待补充")
+    return "" if not text or any(marker in text for marker in placeholders) else text
 
 
 def _appendix_by_id(analysis: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -350,7 +300,7 @@ def _id_from_url(url: str) -> str:
 
 def _fallback_summary(sample: ReelSample) -> str:
     if not sample.transcript:
-        return "无可用转录"
+        return ""
     text = " ".join(sample.transcript.text.split())
     return text[:180] + ("…" if len(text) > 180 else "")
 
@@ -400,7 +350,21 @@ def _deduplicate(values: list[str]) -> list[str]:
 
 
 def _number(value: int | None) -> str:
-    return f"{value:,}" if value is not None else "未知"
+    return f"{value:,}" if value is not None else ""
+
+
+def _interaction_text(sample: ReelSample) -> str:
+    values: list[str] = []
+    if sample.reel.published_at:
+        values.append(f"发布 {sample.reel.published_at.date().isoformat()}")
+    for label, value in (
+        ("观看", sample.reel.views),
+        ("点赞", sample.reel.likes),
+        ("评论", sample.reel.comments),
+    ):
+        if value is not None:
+            values.append(f"{label} {value:,}")
+    return "；".join(values)
 
 
 def _render_products(value: Any) -> str:
@@ -411,8 +375,8 @@ def _render_products(value: Any) -> str:
 def _visual_value(value: Any) -> str:
     if isinstance(value, list):
         items = [_plain(item) for item in value if _plain(item)]
-        return "；".join(items) if items else "未观察到"
-    return _plain(value) or "未观察到"
+        return "；".join(items)
+    return _plain(value)
 
 
 def _visual_failure_reason(diagnostic: dict[str, Any]) -> str:

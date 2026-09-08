@@ -180,7 +180,7 @@ class VisualLayerTests(unittest.TestCase):
         report = render_report(_context(sample, vision_enabled=True))
         self.assertIn("- 视觉素材类型：仅封面", report)
         self.assertIn("仅分析封面", report)
-        self.assertIn("封面降级原因：视频：请求超时", report)
+        self.assertNotIn("封面降级原因", report)
 
     def test_vision_disabled_is_rendered_as_one_operational_note(self) -> None:
         url = "https://www.instagram.com/reel/OFF/"
@@ -213,11 +213,12 @@ class VisualLayerTests(unittest.TestCase):
         report = render_report(_context(sample, vision_enabled=True))
         self.assertIn("- Caption：caption remains", report)
         self.assertIn("- 口播转录摘要：transcript evidence", report)
-        self.assertIn("未取得视觉素材（视频：DNS 解析失败）", report)
+        self.assertNotIn("#### 视觉证据", report)
+        self.assertNotIn("DNS 解析失败", report)
         self.assertNotIn("videoUrl", report)
         self.assertNotIn("异常类别", report)
         self.assertNotIn("secret", report)
-        self.assertIn("视觉缺失 1 条", report)
+        self.assertNotIn("视觉缺失", report)
 
     def test_both_download_failures_render_without_media_urls(self) -> None:
         reel = Reel(url="https://www.instagram.com/reel/BOTH/", shortcode="BOTH")
@@ -237,8 +238,8 @@ class VisualLayerTests(unittest.TestCase):
             },
         )
         report = render_report(_context(sample, vision_enabled=True))
-        self.assertIn("视频：DNS 解析失败", report)
-        self.assertIn("封面：媒体服务器拒绝请求（HTTP 403）", report)
+        self.assertNotIn("DNS 解析失败", report)
+        self.assertNotIn("HTTP 403", report)
         self.assertNotIn("异常类别", report)
         self.assertNotIn("token=", report)
 

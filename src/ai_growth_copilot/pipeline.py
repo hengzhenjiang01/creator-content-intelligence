@@ -136,11 +136,11 @@ def dry_run_summary(
     ]
     if specified:
         lines.extend(f"指定输入 {index}：{url}" for index, url in enumerate(reel_urls, start=1))
-        lines.append("预计报告路径：" + str((output_dir / "specified_reels_YYYYMMDD_HHMMSS.md").resolve()))
+        lines.append("预计报告路径：" + str((output_dir / "specified_reels_v3_YYYYMMDD_HHMMSS.md").resolve()))
         flow = f"Apify 仅获取指定 {len(reel_urls)} 条内容元数据 → Supadata 逐条转录"
     else:
         lines.append(f"Instagram 主页 URL：{account_url}")
-        lines.append("预计报告路径：" + str((output_dir / "<username>_YYYYMMDD_HHMMSS.md").resolve()))
+        lines.append("预计报告路径：" + str((output_dir / "<username>_v3_YYYYMMDD_HHMMSS.md").resolve()))
         flow = "Apify 最近 3 条 Reel → Supadata 逐条转录"
     if vision:
         flow += " → 临时下载媒体 → 固定 10%/50%/90% 关键帧（无视频时仅封面）→ DeepSeek Vision"

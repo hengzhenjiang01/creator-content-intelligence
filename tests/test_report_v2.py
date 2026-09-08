@@ -7,8 +7,8 @@ from ai_growth_copilot.models import Reel, ReelSample, ReportContext, Transcript
 from ai_growth_copilot.report import MECHANISM_FIELDS, render_report
 
 
-class ReportV2Tests(unittest.TestCase):
-    def test_v2_has_four_decision_sections_without_legacy_duplication(self) -> None:
+class ReportV3Tests(unittest.TestCase):
+    def test_v3_has_compact_decision_sections_without_legacy_duplication(self) -> None:
         report = render_report(_context())
         headings = [
             "## A. 核心结论",
@@ -21,6 +21,7 @@ class ReportV2Tests(unittest.TestCase):
         self.assertNotIn("## 内容机制结论", report)
         self.assertNotIn("## 互动数据对比", report)
         self.assertNotIn("第六条不应渲染", report)
+        self.assertIn("（V3）", report)
         self.assertIn("- 分析范围：该账号的 2 条公开内容；结论不外推至账号整体。", report)
         for _, label in MECHANISM_FIELDS:
             self.assertIn(f"| {label} |", report)
@@ -42,15 +43,16 @@ class ReportV2Tests(unittest.TestCase):
         self.assertIn("- B 版本：先展示结果", report)
         self.assertIn("- 观察指标：3 秒留存率、完播率", report)
         self.assertIn("- 证据依据：样本使用了结果先行结构", report)
-        self.assertIn("- 当前不确定性：不能确认开场方式会改善留存", report)
+        self.assertNotIn("- 当前不确定性：", report)
 
-    def test_relationship_requires_explicit_disclosure_evidence(self) -> None:
+    def test_appendix_is_collapsed_and_omits_relationship_judgment(self) -> None:
         context = _context()
         context.analysis["evidence_appendix"][0]["product_relationship"] = "creator partnership"
-        context.analysis["evidence_appendix"][0]["relationship_evidence"] = ""
         report = render_report(context)
-        self.assertIn("- 产品关系：unknown", report)
-        self.assertIn("- 关系证据：未发现明确的公开合作披露", report)
+        self.assertIn("<details>", report)
+        self.assertIn("<summary>内容 ONE · 原始证据</summary>", report)
+        self.assertNotIn("产品关系", report)
+        self.assertNotIn("关系证据", report)
 
     def test_renderer_owns_links_and_strips_model_markdown(self) -> None:
         report = render_report(_context())
@@ -63,7 +65,7 @@ class ReportV2Tests(unittest.TestCase):
 
     def test_focus_product_is_not_rendered_without_evidence(self) -> None:
         report = render_report(_context())
-        self.assertIn("- 产品提及：CapCut", report)
+        self.assertNotIn("- 产品提及：CapCut", report)
         self.assertNotIn("- 产品提及：Lovart", report)
 
     def test_single_sample_broad_interaction_claim_is_guarded(self) -> None:
@@ -79,9 +81,7 @@ class ReportV2Tests(unittest.TestCase):
         first = context.samples[0]
         first = replace(first, reel=replace(first.reel, published_at=None))
         context = replace(context, samples=[first, *context.samples[1:]])
-        context.analysis["lovart_strategy"]["should_not_infer"][0]["text"] = (
-            "发布时间与曝光窗口不同，不能把互动差异归因于 Hook。"
-        )
+        context.analysis["core_conclusions"][0]["text"] = "发布时间与曝光窗口不同，不能把互动差异归因于 Hook。"
         report = render_report(context)
         self.assertNotIn("发布时间与曝光窗口不同", report)
         self.assertIn(
@@ -95,6 +95,21 @@ class ReportV2Tests(unittest.TestCase):
         self.assertIn(notice, report)
         self.assertNotIn(notice, render_report(_context()))
 
+    def test_body_keeps_only_decision_fields_and_one_test(self) -> None:
+        context = _context()
+        context.analysis["lovart_strategy"]["can_borrow"] *= 3
+        context.analysis["lovart_strategy"]["worth_testing"] *= 2
+        report = render_report(context)
+        body = report.split("## D. 原始证据附录", 1)[0]
+        self.assertNotIn("目标受众", body)
+        self.assertNotIn("痛点或欲望", body)
+        self.assertNotIn("Caption 原文", body)
+        self.assertNotIn("完整口播文本", body)
+        self.assertEqual(body.count("- 测试变量："), 1)
+        self.assertLessEqual(body.count("- [建议]"), 2)
+        self.assertNotIn("待补充", report)
+        self.assertNotIn("现有证据未明确", report)
+
 
 def _context() -> ReportContext:
     samples = [_sample("ONE", 1_000, 80, 12), _sample("TWO", 800, 60, 8)]
@@ -107,25 +122,14 @@ def _context() -> ReportContext:
         _claim("观察", "第五条不应渲染", ["ONE"]),
         _claim("观察", "第六条不应渲染", ["ONE"]),
     ]
-    fields = {
-        key: _claim("观察", text, ["ONE"])
-        for (key, _), text in zip(
-            MECHANISM_FIELDS,
-            (
-                "教程演示",
-                "把长视频裁切成竖屏短视频",
-                "需要快速适配短视频平台的视频运营人员",
-                "减少逐镜头重新构图的编辑时间",
-                "先展示结果",
-                "结果—步骤—CTA",
-                "作为实现效果的操作工具",
-                "解释操作步骤",
-                "展示界面与输出结果",
-                "评论关键词获取提示词",
-                "可复用的剪辑操作方法",
-            ),
-        )
+    field_text = {
+        "content_type": "教程演示",
+        "hook_type": "先展示结果",
+        "narrative_structure": "结果—步骤—CTA",
+        "product_role": "作为实现效果的操作工具",
+        "cta": "评论关键词获取提示词",
     }
+    fields = {key: _claim("观察", field_text[key], ["ONE"]) for key, _ in MECHANISM_FIELDS}
     analysis = {
         "core_conclusions": core,
         "content_mechanisms": [{"content_id": "ONE", "fields": fields}],
