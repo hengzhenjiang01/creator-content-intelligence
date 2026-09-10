@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Callable
 
 from .analysis import DeepSeekAnalyzer
 from .config import Settings
@@ -9,6 +10,27 @@ from .models import Reel, ReelSample, ReportContext
 from .report import write_report
 from .transcription import SupadataTranscriber, TranscriptionError
 from .visual import DeepSeekVisionAnalyzer, VisualError
+
+
+ProgressCallback = Callable[[str, str], None]
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+    report_path: Path
+    context: ReportContext
+
+    @property
+    def success_count(self) -> int:
+        return self.context.sample_count - self.context.failure_count
+
+    @property
+    def failure_count(self) -> int:
+        return self.context.failure_count
+
+    @property
+    def visual_failure_count(self) -> int:
+        return self.context.visual_failure_count
 
 
 class Pipeline:
@@ -22,7 +44,24 @@ class Pipeline:
         reel_urls: list[str] | None = None,
         focus_products: list[str] | None = None,
         vision: bool = False,
+        progress_callback: ProgressCallback | None = None,
     ) -> Path:
+        return self.run_with_result(
+            account_url=account_url,
+            reel_urls=reel_urls,
+            focus_products=focus_products,
+            vision=vision,
+            progress_callback=progress_callback,
+        ).report_path
+
+    def run_with_result(
+        self,
+        account_url: str = "",
+        reel_urls: list[str] | None = None,
+        focus_products: list[str] | None = None,
+        vision: bool = False,
+        progress_callback: ProgressCallback | None = None,
+    ) -> PipelineResult:
         reel_urls = reel_urls or []
         focus_products = focus_products or []
         if bool(account_url) == bool(reel_urls):
@@ -33,38 +72,51 @@ class Pipeline:
             self.settings.apify_actor_id,
             self.settings.request_timeout_seconds,
         )
-        if reel_urls:
-            fetched_reels = scraper.fetch_specified_posts(reel_urls)
-            fetched_by_id = {reel.shortcode: reel for reel in fetched_reels}
-            reels = [
-                fetched_by_id.get(url.rstrip("/").split("/")[-1])
-                or Reel(url=url, shortcode=url.rstrip("/").split("/")[-1])
-                for url in reel_urls
-            ]
-            analysis_mode = "指定 Reel"
-            input_urls = reel_urls
-            analysis_context = "指定公开内容：" + ", ".join(reel_urls)
-        else:
-            reels = scraper.fetch_recent_reels(account_url, limit=3)
-            analysis_mode = "主页"
-            input_urls = [account_url]
-            analysis_context = f"创作者主页：{account_url}"
+        _emit_progress(progress_callback, "抓取内容", "running")
+        try:
+            if reel_urls:
+                fetched_reels = scraper.fetch_specified_posts(reel_urls)
+                fetched_by_id = {reel.shortcode: reel for reel in fetched_reels}
+                reels = [
+                    fetched_by_id.get(url.rstrip("/").split("/")[-1])
+                    or Reel(url=url, shortcode=url.rstrip("/").split("/")[-1])
+                    for url in reel_urls
+                ]
+                analysis_mode = "指定 Reel"
+                input_urls = reel_urls
+                analysis_context = "指定公开内容：" + ", ".join(reel_urls)
+            else:
+                reels = scraper.fetch_recent_reels(account_url, limit=3)
+                analysis_mode = "主页"
+                input_urls = [account_url]
+                analysis_context = f"创作者主页：{account_url}"
+        except Exception:
+            _emit_progress(progress_callback, "抓取内容", "failed")
+            raise
+        _emit_progress(progress_callback, "抓取内容", "completed")
         transcriber = SupadataTranscriber(
             self.settings.supadata_api_key,
             timeout=self.settings.request_timeout_seconds,
             poll_interval=self.settings.supadata_poll_interval_seconds,
             max_attempts=self.settings.supadata_max_poll_attempts,
         )
-        samples: list[ReelSample] = []
-        for reel in reels:
-            if analysis_mode == "指定 Reel" and not reel.raw:
-                samples.append(ReelSample(reel=reel, error="Apify 未返回该指定内容的公开元数据"))
-                continue
-            try:
-                samples.append(ReelSample(reel=reel, transcript=transcriber.transcribe(reel.url)))
-            except TranscriptionError as exc:
-                samples.append(ReelSample(reel=reel, error=str(exc)))
+        _emit_progress(progress_callback, "转录", "running")
+        try:
+            samples: list[ReelSample] = []
+            for reel in reels:
+                if analysis_mode == "指定 Reel" and not reel.raw:
+                    samples.append(ReelSample(reel=reel, error="Apify 未返回该指定内容的公开元数据"))
+                    continue
+                try:
+                    samples.append(ReelSample(reel=reel, transcript=transcriber.transcribe(reel.url)))
+                except TranscriptionError as exc:
+                    samples.append(ReelSample(reel=reel, error=str(exc)))
+        except Exception:
+            _emit_progress(progress_callback, "转录", "failed")
+            raise
+        _emit_progress(progress_callback, "转录", "completed")
         if vision:
+            _emit_progress(progress_callback, "视觉处理", "running")
             vision_analyzer = DeepSeekVisionAnalyzer(
                 self.settings.deepseek_api_key,
                 self.settings.deepseek_vision_model,
@@ -94,6 +146,10 @@ class Pipeline:
                 except VisualError as exc:
                     visually_enriched.append(replace(sample, visual_error=exc.to_dict(sample.reel)))
             samples = visually_enriched
+            _emit_progress(progress_callback, "视觉处理", "completed")
+        else:
+            _emit_progress(progress_callback, "视觉处理", "skipped")
+        _emit_progress(progress_callback, "综合分析", "running")
         analyzer = DeepSeekAnalyzer(
             self.settings.deepseek_api_key,
             self.settings.deepseek_model,
@@ -105,19 +161,30 @@ class Pipeline:
         except Exception as exc:
             analysis = {}
             analysis_error = str(exc)
-        return write_report(
-            ReportContext(
-                account_url=account_url,
-                fetched_at=fetched_at,
-                samples=samples,
-                analysis=analysis,
-                analysis_error=analysis_error,
-                analysis_mode=analysis_mode,
-                input_urls=input_urls,
-                vision_enabled=vision,
-            ),
-            self.output_dir,
+        _emit_progress(progress_callback, "综合分析", "failed" if analysis_error else "completed")
+        context = ReportContext(
+            account_url=account_url,
+            fetched_at=fetched_at,
+            samples=samples,
+            analysis=analysis,
+            analysis_error=analysis_error,
+            analysis_mode=analysis_mode,
+            input_urls=input_urls,
+            vision_enabled=vision,
         )
+        _emit_progress(progress_callback, "生成报告", "running")
+        try:
+            report_path = write_report(context, self.output_dir)
+        except Exception:
+            _emit_progress(progress_callback, "生成报告", "failed")
+            raise
+        _emit_progress(progress_callback, "生成报告", "completed")
+        return PipelineResult(report_path=report_path, context=context)
+
+
+def _emit_progress(callback: ProgressCallback | None, stage: str, status: str) -> None:
+    if callback:
+        callback(stage, status)
 
 
 def dry_run_summary(

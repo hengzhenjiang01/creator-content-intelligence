@@ -1,10 +1,10 @@
 # Creator Content Intelligence
 
-Creator Content Intelligence 是一个 Python 命令行 Agent，用于分析公开 Instagram Reel。它组合公开元数据与 caption、Supadata 口播转录，以及可选的视频关键帧视觉证据，生成带来源链接的创作者内容机制报告。
+Creator Content Intelligence 是一个 Python Agent，用于分析公开 Instagram Reel。它组合公开元数据与 caption、Supadata 口播转录，以及可选的视频关键帧视觉证据，生成带来源链接的创作者内容机制报告。项目同时提供命令行和 Streamlit 本地网页入口。
 
 当前版本仅支持公开 Instagram 内容。项目未来可以扩展到 YouTube，但目前没有实现 YouTube 抓取、转录或分析能力。
 
-当前版本只有命令行，不包含网页、数据库或部署配置。
+当前版本包含命令行与 Streamlit 本地网页，不包含数据库或部署配置。
 
 可选视觉层需要本机安装 `ffmpeg` 和 `ffprobe`。视觉层下载的原始视频与关键帧只存在于系统临时目录，处理结束后自动清理，不会写入 `outputs/`。
 
@@ -81,6 +81,18 @@ python main.py \
 ```
 
 focus products 只是识别提醒，不会被当作内容已经提及的产品；模型仍须列出 caption、转录或视觉证据中实际出现的其他 AI 产品。
+
+## Streamlit 本地网页
+
+安装依赖并填写本地 `.env` 后，在项目根目录启动：
+
+```bash
+streamlit run web_app.py
+```
+
+网页支持创作者主页模式和 1–3 条指定 Reel/Post 模式，两种输入互斥。重点产品默认为 Lovart、Higgsfield、CapCut，视觉分析默认开启。点击“开始分析”会直接调用 Apify、Supadata 和 DeepSeek，并可能产生少量 API 费用；API key 只从本地 `.env` 读取，不会显示在页面或报告中。
+
+运行期间页面显示抓取、转录、视觉处理、综合分析和报告生成五个阶段。按钮在任务执行期间会被锁定，避免重复提交；完成后可直接查看 V3 报告并下载 Markdown 文件。
 
 ### 可选视觉分析
 
@@ -180,4 +192,10 @@ PYTHONPATH=src python3 -m unittest tests/test_cli.py
 
 ```bash
 PYTHONPATH=src python3 -m unittest tests/test_visual.py tests/test_report_v2.py
+```
+
+运行全部本地测试（不会调用外部 API）：
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'
 ```
