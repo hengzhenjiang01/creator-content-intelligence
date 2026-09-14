@@ -3,13 +3,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from ai_growth_copilot.config import Settings
+from ai_growth_copilot.config import LiveAnalysisSettings, Settings
 from ai_growth_copilot.models import Reel, ReportContext, Transcript
 from ai_growth_copilot.pipeline import Pipeline, PipelineResult
 from ai_growth_copilot.web import (
+    LiveAccessError,
     WebInputError,
     claim_request,
     execute_web_request,
+    load_demo_report,
     parse_report_for_web,
     prepare_web_request,
     release_request,
@@ -150,6 +152,7 @@ class WebAdapterTests(unittest.TestCase):
             supadata_api_key="test-supadata",
             deepseek_api_key="test-deepseek",
         )
+        self.live_settings = LiveAnalysisSettings(enabled=True, access_password="test-password")
 
     def test_adapter_calls_pipeline_directly(self) -> None:
         request = prepare_web_request("https://www.instagram.com/creator/", "", "Lovart", True)
@@ -178,6 +181,8 @@ class WebAdapterTests(unittest.TestCase):
             request,
             self.settings,
             Path("outputs"),
+            live_settings=self.live_settings,
+            provided_password="test-password",
             progress_callback=callback,
             pipeline_class=FakePipeline,  # type: ignore[arg-type]
         )
@@ -188,7 +193,95 @@ class WebAdapterTests(unittest.TestCase):
     def test_missing_keys_fail_before_pipeline_creation(self) -> None:
         request = prepare_web_request("https://www.instagram.com/creator/", "", "", True)
         with self.assertRaisesRegex(WebInputError, "APIFY_TOKEN"):
-            execute_web_request(request, Settings("", "", ""), Path("outputs"))
+            execute_web_request(
+                request,
+                Settings("", "", ""),
+                Path("outputs"),
+                live_settings=self.live_settings,
+                provided_password="test-password",
+            )
+
+    def test_disabled_live_analysis_never_constructs_pipeline(self) -> None:
+        request = prepare_web_request("https://www.instagram.com/creator/", "", "", True)
+
+        class ForbiddenPipeline:
+            def __init__(self, *_args, **_kwargs) -> None:
+                raise AssertionError("Pipeline must not be constructed")
+
+        with self.assertRaisesRegex(LiveAccessError, "未启用"):
+            execute_web_request(
+                request,
+                self.settings,
+                Path("outputs"),
+                live_settings=LiveAnalysisSettings(enabled=False, access_password="test-password"),
+                provided_password="test-password",
+                pipeline_class=ForbiddenPipeline,  # type: ignore[arg-type]
+            )
+
+    def test_wrong_password_never_constructs_pipeline(self) -> None:
+        request = prepare_web_request("https://www.instagram.com/creator/", "", "", True)
+
+        class ForbiddenPipeline:
+            def __init__(self, *_args, **_kwargs) -> None:
+                raise AssertionError("Pipeline must not be constructed")
+
+        with self.assertRaisesRegex(LiveAccessError, "密码错误"):
+            execute_web_request(
+                request,
+                self.settings,
+                Path("outputs"),
+                live_settings=self.live_settings,
+                provided_password="wrong-password",
+                pipeline_class=ForbiddenPipeline,  # type: ignore[arg-type]
+            )
+
+    def test_streamlit_secrets_override_local_environment(self) -> None:
+        settings = Settings.from_env(
+            overrides={
+                "APIFY_TOKEN": "cloud-apify",
+                "SUPADATA_API_KEY": "cloud-supadata",
+                "DEEPSEEK_API_KEY": "cloud-deepseek",
+                "REQUEST_TIMEOUT_SECONDS": "45",
+            }
+        )
+        live = LiveAnalysisSettings.from_env(
+            overrides={
+                "ENABLE_LIVE_ANALYSIS": "true",
+                "APP_ACCESS_PASSWORD": "cloud-password",
+            }
+        )
+        self.assertEqual(settings.apify_token, "cloud-apify")
+        self.assertEqual(settings.request_timeout_seconds, 45)
+        self.assertTrue(live.enabled)
+        self.assertNotIn("cloud-password", repr(live))
+
+    def test_demo_report_renders_without_pipeline_or_http_calls(self) -> None:
+        with (
+            patch("ai_growth_copilot.pipeline.Pipeline.run_with_result") as pipeline_run,
+            patch("requests.sessions.Session.request") as http_request,
+        ):
+            report = load_demo_report(Path("examples/demo_report_v3.md"))
+            view = parse_report_for_web(report)
+        pipeline_run.assert_not_called()
+        http_request.assert_not_called()
+        self.assertIn("## A. 核心结论", view.body_markdown)
+        self.assertEqual(len(view.appendices), 3)
+
+    def test_streamlit_defaults_to_demo_without_external_calls(self) -> None:
+        from streamlit.testing.v1 import AppTest
+
+        with (
+            patch("ai_growth_copilot.pipeline.Pipeline.run_with_result") as pipeline_run,
+            patch("requests.sessions.Session.request") as http_request,
+        ):
+            app_path = Path(__file__).resolve().parents[1] / "web_app.py"
+            app = AppTest.from_file(app_path).run(timeout=10)
+        pipeline_run.assert_not_called()
+        http_request.assert_not_called()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.radio[0].value, "Demo Mode")
+        self.assertEqual([metric.label for metric in app.metric], ["成功条数", "失败条数", "视觉缺失条数"])
+        self.assertEqual(len(app.expander), 3)
 
     def test_safe_errors_hide_urls_and_credentials(self) -> None:
         error = WebInputError(

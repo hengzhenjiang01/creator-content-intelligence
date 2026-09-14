@@ -1,6 +1,8 @@
 .env
 .env.local
 .env.*.local
+.streamlit/secrets.toml
+secrets.toml
 .venv/
 venv/
 __pycache__/

@@ -1,16 +1,21 @@
 from dataclasses import dataclass
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
 from typing import Any, MutableMapping
 
 from .cli import normalize_focus_products, normalize_instagram_content_url, validate_instagram_profile_url
-from .config import ConfigError, Settings
+from .config import ConfigError, LiveAnalysisSettings, Settings
 from .pipeline import Pipeline, PipelineResult, ProgressCallback
 
 
 class WebInputError(ValueError):
+    pass
+
+
+class LiveAccessError(PermissionError):
     pass
 
 
@@ -68,9 +73,12 @@ def execute_web_request(
     request: WebAnalysisRequest,
     settings: Settings,
     output_dir: Path,
+    live_settings: LiveAnalysisSettings,
+    provided_password: str,
     progress_callback: ProgressCallback | None = None,
     pipeline_class: type[Pipeline] = Pipeline,
 ) -> PipelineResult:
+    require_live_access(live_settings, provided_password)
     errors = settings.validate(require_secrets=True)
     if errors:
         raise WebInputError("；".join(errors))
@@ -81,6 +89,26 @@ def execute_web_request(
         vision=request.vision,
         progress_callback=progress_callback,
     )
+
+
+def require_live_access(live_settings: LiveAnalysisSettings, provided_password: str) -> None:
+    if not live_settings.enabled:
+        raise LiveAccessError("Live Analysis 未启用")
+    configured_password = live_settings.access_password
+    if not configured_password:
+        raise LiveAccessError("Live Analysis 缺少访问密码配置")
+    if not provided_password or not hmac.compare_digest(configured_password, provided_password):
+        raise LiveAccessError("访问密码错误")
+
+
+def load_demo_report(path: Path) -> str:
+    try:
+        report = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WebInputError("Demo 报告暂不可用") from exc
+    if not report.strip():
+        raise WebInputError("Demo 报告暂不可用")
+    return report
 
 
 def request_fingerprint(request: WebAnalysisRequest) -> str:
@@ -108,7 +136,7 @@ def release_request(state: MutableMapping[str, Any]) -> None:
 
 
 def safe_web_error(exc: BaseException) -> str:
-    if isinstance(exc, (WebInputError, ConfigError, ValueError)):
+    if isinstance(exc, (WebInputError, LiveAccessError, ConfigError, ValueError)):
         return _redact_text(str(exc))
     if exc.__class__.__name__ in {"InstagramScraperError", "TranscriptionError", "AnalysisError"}:
         return _redact_text(str(exc))

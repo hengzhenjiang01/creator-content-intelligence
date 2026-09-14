@@ -1,16 +1,46 @@
 # Creator Content Intelligence
 
-Creator Content Intelligence 是一个 Python Agent，用于分析公开 Instagram Reel。它组合公开元数据与 caption、Supadata 口播转录，以及可选的视频关键帧视觉证据，生成带来源链接的创作者内容机制报告。项目同时提供命令行和 Streamlit 本地网页入口。
+> **v0.2.0 · Streamlit Cloud Ready**
 
-当前版本仅支持公开 Instagram 内容。项目未来可以扩展到 YouTube，但目前没有实现 YouTube 抓取、转录或分析能力。
+Creator Content Intelligence 是一个面向海外内容运营的 Python Agent：输入公开 Instagram 创作者主页或 1–3 条指定 Reel/Post，组合公开元数据、Caption、口播转录和可选关键帧视觉证据，输出证据约束的 V3 内容机制决策报告。
 
-当前版本包含命令行与 Streamlit 本地网页，不包含数据库或部署配置。
+当前版本支持 CLI、Streamlit 本地网页与 Streamlit Community Cloud。默认 Demo Mode 使用仓库内置脱敏数据，外部 API 调用为 0；Live Analysis 需要部署者显式开启并通过访问密码保护。
+
+当前仅支持 **Instagram**。YouTube 是后续规划，尚未实现。
+
+## 当前功能
+
+- 主页模式：获取公开账号最近 3 条 Reel。
+- 指定内容模式：分析 1–3 条 `/reel/`、`/reels/` 或 `/p/` 链接。
+- 数据层：Apify 获取公开元数据与 Caption，Supadata 获取口播转录。
+- 可选视觉层：固定截取视频约 10%、50%、90% 关键帧并调用 DeepSeek Vision。
+- 决策层：DeepSeek 生成证据约束的 V3 报告，区分观察、推断与建议。
+- 展示层：Streamlit 提供 Demo、Live Analysis、进度状态、结果预览与 Markdown 下载。
+
+## 完整工作链路
+
+```text
+Instagram 主页或 1–3 条指定内容
+  → Apify 公开元数据与 Caption
+  → Supadata 口播转录
+  → 可选视频下载、ffmpeg 关键帧与 DeepSeek Vision
+  → DeepSeek 结构化内容分析
+  → 本地 V3 Markdown 渲染
+  → Streamlit 结果展示与下载
+```
 
 可选视觉层需要本机安装 `ffmpeg` 和 `ffprobe`。视觉层下载的原始视频与关键帧只存在于系统临时目录，处理结束后自动清理，不会写入 `outputs/`。
 
 ## 安全模式
 
-命令默认运行 **dry-run**：仅校验 URL、配置格式和流程，不调用任何外部 API，也不会产生付费请求。只有显式加入 `--run` 后，程序才会调用 Apify、Supadata 和 DeepSeek。
+CLI 默认运行 **dry-run**：仅校验 URL、配置格式和流程，不调用任何外部 API，也不会产生付费请求。只有显式加入 `--run` 后，CLI 才会调用 Apify、Supadata 和 DeepSeek。
+
+Streamlit 默认进入 **Demo Mode**。Live Analysis 必须同时满足：
+
+1. 部署配置中的 `ENABLE_LIVE_ANALYSIS=true`；
+2. 用户输入与 `APP_ACCESS_PASSWORD` 完全一致的密码。
+
+任一条件不满足时，网页适配层会在创建 Pipeline 前拒绝请求。
 
 ## 安装
 
@@ -30,6 +60,8 @@ cp .env.example .env
 APIFY_TOKEN=your_apify_token
 SUPADATA_API_KEY=your_supadata_api_key
 DEEPSEEK_API_KEY=your_deepseek_api_key
+ENABLE_LIVE_ANALYSIS=false
+APP_ACCESS_PASSWORD=choose_a_strong_password
 ```
 
 ## 使用
@@ -84,15 +116,39 @@ focus products 只是识别提醒，不会被当作内容已经提及的产品�
 
 ## Streamlit 本地网页
 
-安装依赖并填写本地 `.env` 后，在项目根目录启动：
+安装依赖后，在项目根目录启动：
 
 ```bash
 streamlit run web_app.py
 ```
 
-网页支持创作者主页模式和 1–3 条指定 Reel/Post 模式，两种输入互斥。重点产品默认为 Lovart、Higgsfield、CapCut，视觉分析默认开启。点击“开始分析”会直接调用 Apify、Supadata 和 DeepSeek，并可能产生少量 API 费用；API key 只从本地 `.env` 读取，不会显示在页面或报告中。
+页面默认显示脱敏 Demo，无需 API key。若要在本地启用真实分析，请在 `.env` 中填写三项 API key，并设置：
+
+```dotenv
+ENABLE_LIVE_ANALYSIS=true
+APP_ACCESS_PASSWORD=choose_a_strong_password
+```
+
+切换到 Live Analysis 后，还必须在页面输入该密码。网页继续限制主页与指定内容两种输入互斥，单次最多分析 3 条内容。重点产品默认为 Lovart、Higgsfield、CapCut，视觉分析默认开启。
 
 运行期间页面显示抓取、转录、视觉处理、综合分析和报告生成五个阶段。按钮在任务执行期间会被锁定，避免重复提交；完成后可直接查看 V3 报告并下载 Markdown 文件。
+
+## Streamlit Community Cloud 部署
+
+1. 将仓库连接到 [Streamlit Community Cloud](https://share.streamlit.io/)。
+2. Main file path 选择 `web_app.py`。
+3. 平台会从 `requirements.txt` 安装 Python 依赖，并从 `packages.txt` 安装 `ffmpeg`。
+4. 在应用的 **Settings → Secrets** 中配置；不要创建或提交真实 `.streamlit/secrets.toml`：
+
+```toml
+ENABLE_LIVE_ANALYSIS = "false"
+APP_ACCESS_PASSWORD = "replace-with-a-strong-password"
+APIFY_TOKEN = "replace-with-apify-token"
+SUPADATA_API_KEY = "replace-with-supadata-key"
+DEEPSEEK_API_KEY = "replace-with-deepseek-key"
+```
+
+保持 `ENABLE_LIVE_ANALYSIS = "false"` 时，云端应用只提供免费 Demo。需要开放真实分析时再改为 `"true"`；用户仍须输入正确的 `APP_ACCESS_PASSWORD`。本地 `.env` 与 Streamlit Cloud Secrets 均受支持，Cloud Secrets 的同名配置优先。
 
 ### 可选视觉分析
 
