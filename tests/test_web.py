@@ -280,8 +280,8 @@ class WebAdapterTests(unittest.TestCase):
         http_request.assert_not_called()
         self.assertFalse(app.exception)
         self.assertEqual(app.radio[0].value, "Demo Mode")
-        self.assertEqual([metric.label for metric in app.metric], ["成功条数", "失败条数", "视觉缺失条数"])
-        self.assertEqual(len(app.expander), 3)
+        self.assertEqual([metric.label for metric in app.metric], ["成功条数（示例）", "失败条数（示例）", "视觉缺失条数（示例）"])
+        self.assertEqual(len(app.expander), 4)
 
     def test_safe_errors_hide_urls_and_credentials(self) -> None:
         error = WebInputError(

@@ -122,7 +122,9 @@ focus products 只是识别提醒，不会被当作内容已经提及的产品�
 streamlit run web_app.py
 ```
 
-页面默认显示脱敏 Demo，无需 API key。若要在本地启用真实分析，请在 `.env` 中填写三项 API key，并设置：
+页面默认显示虚构、脱敏 Demo，无需 API key。首页提供三步流程介绍、报告阅读指引，以及包含技术链路、分析边界和 GitHub 源码入口的侧栏。Demo 统计明确标注为“示例”，不代表真实运行结果；原始证据默认折叠。YouTube 仅列为后续规划。
+
+若要在本地启用真实分析，请在 `.env` 中填写三项 API key，并设置：
 
 ```dotenv
 ENABLE_LIVE_ANALYSIS=true

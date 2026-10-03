@@ -39,6 +39,24 @@ def main() -> None:
     st.set_page_config(page_title="Creator Content Intelligence", page_icon="🔎", layout="wide")
     st.title("Creator Content Intelligence")
     st.caption("面向公开 Instagram 内容的证据约束分析 · v0.2.0")
+    st.markdown("把创作者内容，拆解成可追溯的运营决策。")
+    st.write(
+        "输入公开 Instagram 主页或 1–3 条 Reel/Post，结合 Caption、口播和可选关键帧，"
+        "快速查看内容机制、产品融入方式与下一步值得测试的方向。"
+    )
+    with st.sidebar:
+        st.subheader("项目概览")
+        st.caption("为海外 AI 创作产品内容运营设计")
+        st.markdown(
+            "**支持范围**：公开 Instagram 内容，单次最多 3 条。\n\n"
+            "**技术链路**：Python · Apify · Supadata · DeepSeek · Streamlit。\n\n"
+            "**分析边界**：单条内容而非整个账号；三张静帧不代表完整视频，互动差异不等于因果。\n\n"
+            "**后续规划**：YouTube（尚未支持）。"
+        )
+        st.link_button(
+            "查看 GitHub 源码 ↗",
+            "https://github.com/hengzhenjiang01/creator-content-intelligence",
+        )
     _initialize_state()
 
     run_mode = st.radio("运行模式", ("Demo Mode", "Live Analysis"), index=0, horizontal=True)
@@ -50,7 +68,27 @@ def main() -> None:
 
 
 def _render_demo_mode() -> None:
-    st.info("当前为 Demo Mode：仅展示仓库内置的脱敏示例，不调用外部 API，也不会产生费用。")
+    st.info("免费 Demo · 无需密钥 · 外部 API 调用为 0。以下为虚构示例，不是本次真实分析结果。")
+    columns = st.columns(3)
+    for column, title, description in zip(
+        columns,
+        ("01 · 收集证据", "02 · 拆解机制", "03 · 形成测试"),
+        (
+            "Caption、口播转录与关键帧视觉证据分别保留。",
+            "横向比较 Hook、产品作用、叙事结构与 CTA。",
+            "提炼最多 2 条运营启示与 1 个优先 A/B 测试。",
+        ),
+    ):
+        with column:
+            st.markdown(f"**{title}**")
+            st.caption(description)
+    with st.expander("如何阅读这份报告", expanded=False):
+        st.markdown(
+            "先读核心结论，再用对比表查看差异，最后查看优先 A/B 测试。"
+            "需要核对依据时，展开底部的原始证据附录。\n\n"
+            "`[观察]` 来自直接证据；`[推断]` 是有边界的解释；`[建议]` 是待验证假设。"
+            "示例中的来源链接和互动数字仅用于演示，不是真实内容或效果证明。"
+        )
     try:
         report_text = load_demo_report(DEMO_REPORT_PATH)
     except Exception as exc:
@@ -63,7 +101,8 @@ def _render_demo_mode() -> None:
         failure_count=0,
         visual_failure_count=0,
         issues=[],
-        heading="Demo 分析结果",
+        heading="示例决策报告",
+        demo=True,
     )
 
 
@@ -223,13 +262,15 @@ def _render_report_panel(
     visual_failure_count: int,
     issues: list[str],
     heading: str,
+    demo: bool = False,
 ) -> None:
     st.divider()
     st.subheader(heading)
     success_col, failure_col, visual_col = st.columns(3)
-    success_col.metric("成功条数", success_count)
-    failure_col.metric("失败条数", failure_count)
-    visual_col.metric("视觉缺失条数", visual_failure_count)
+    suffix = "（示例）" if demo else ""
+    success_col.metric(f"成功条数{suffix}", success_count)
+    failure_col.metric(f"失败条数{suffix}", failure_count)
+    visual_col.metric(f"视觉缺失条数{suffix}", visual_failure_count)
 
     if issues:
         with st.expander("失败与数据质量提示"):
