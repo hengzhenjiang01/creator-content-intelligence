@@ -2,6 +2,10 @@
 
 > **v0.2.0 · Streamlit Cloud Ready**
 
+[在线 Demo](https://creator-content-intelligence.streamlit.app/) · [GitHub 源码](https://github.com/hengzhenjiang01/creator-content-intelligence)
+
+在线 Demo 使用虚构、脱敏示例，支持查看 V3 决策报告、展开原始证据和下载 Markdown；无需 API Key，不调用分析 API、不产生分析费用。示例不代表真实账号或真实分析结果，也不代表云端 Live Analysis 已完成验证。
+
 Creator Content Intelligence 是一个面向海外内容运营的 Python Agent：输入公开 Instagram 创作者主页或 1–3 条指定 Reel/Post，组合公开元数据、Caption、口播转录和可选关键帧视觉证据，输出证据约束的 V3 内容机制决策报告。
 
 当前版本支持 CLI、Streamlit 本地网页与 Streamlit Community Cloud。默认 Demo Mode 使用仓库内置脱敏数据，外部 API 调用为 0；Live Analysis 需要部署者显式开启并通过访问密码保护。
